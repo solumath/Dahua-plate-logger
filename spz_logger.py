@@ -34,7 +34,7 @@ load_dotenv(SCRIPT_DIR / ".env")
 CAMERA_URL  = os.environ["CAMERA_URL"]
 CAMERA_USER = os.environ["CAMERA_USER"]
 CAMERA_PASS = os.environ["CAMERA_PASS"]
-OUTPUT_DIR  = Path(os.getenv("OUTPUT_DIR") or SCRIPT_DIR / f"{datetime.now().year}") 
+OUTPUT_DIR  = Path(os.getenv("OUTPUT_DIR") or SCRIPT_DIR / "plates") / f"{datetime.now().year}"
 LOG_FILE    = Path(os.getenv("LOG_FILE")   or SCRIPT_DIR / "spz_logger.log")
 
 

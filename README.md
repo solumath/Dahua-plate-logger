@@ -2,16 +2,17 @@
 
 Dahua camera event listener. Listens to events on dahua camera and logs them to daily CSV files.
 Specifically for ITC237-PW6M-IRLZF-C2, but should work with any Dahua camera that supports the same event API.
+Most of the parts are AI generated, so expect some rough edges ("It works on my machine").
 
 ## Output
 
-All output is written to the `plates/` folder next to the executable:
+All output is written to the `plates/YYYY/` folder next to the executable:
 
 | File | Description |
 | ---- | ----------- |
-| `YYYY-MM-DD.csv` | Plate number and timestamp, one row per detection |
-| `YYYY-MM-DD.jsonl` | Raw JSON events from the camera, one per line |
-| `spz_logger.log` | Application log with rotating backup (10 MB × 3) |
+| `plates/YYYY/YYYY-MM-DD.csv` | Plate number and timestamp, one row per detection |
+| `plates/YYYY/YYYY-MM-DD.jsonl` | Raw JSON events from the camera, one per line |
+| `spz_logger.log` | Application log, rotated daily; archived logs go to `logs/`, kept for 30 days |
 
 ## Configuration
 
@@ -21,8 +22,8 @@ Create a `.env` file next to the executable:
 CAMERA_URL=http://192.168.x.x/cgi-bin/eventManager.cgi?action=attach&codes=[TrafficJunction]
 CAMERA_USER=admin
 CAMERA_PASS=yourpassword
-OUTPUT_DIR=   # optional, defaults to ./plates/
-LOG_FILE=     # optional, defaults to ./spz_logger.log rotated files go to ./logs/
+OUTPUT_DIR=   # optional base dir, defaults to ./plates/; year subfolder is always appended
+LOG_FILE=     # optional, defaults to ./spz_logger.log; rotated files go to ./logs/
 ```
 
 ## Deployment on Windows
@@ -80,3 +81,7 @@ python spz_logger.py
 ```
 
 The script reconnects automatically after a connection drop.
+
+Only one instance can run at a time. Starting a second instance will show an error popup and exit immediately.
+
+On Windows, a popup confirms successful startup.
