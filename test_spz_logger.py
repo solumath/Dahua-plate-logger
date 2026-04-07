@@ -189,7 +189,7 @@ def test_popup_does_nothing_on_non_windows(monkeypatch):
 
 
 # ---------------------------------------------------------------------------
-# stream_and_process
+# _iter_lines / stream_loop
 # ---------------------------------------------------------------------------
 
 def _make_mock_response(lines: list[str]):
@@ -202,45 +202,52 @@ def _make_mock_response(lines: list[str]):
     return mock_resp
 
 
-def test_stream_parses_plate_event(tmp_path, monkeypatch):
+def test_iter_lines_parses_plate_event(tmp_path, monkeypatch):
     monkeypatch.setattr(spz_logger, "OUTPUT_DIR", tmp_path)
     event = _make_event(obj_type="Plate", obj_text="STREAM1")
     event_lines = json.dumps(event, indent=2).splitlines()
-    # Camera sends opening brace on the Code= line, rest on subsequent lines
     lines = [f"Code=TrafficJunction;action=Pulse;data={event_lines[0]}"] + event_lines[1:]
-    with patch("spz_logger.requests.get", return_value=_make_mock_response(lines)):
-        spz_logger.stream_and_process()
+    spz_logger._iter_lines(_make_mock_response(lines))
     rows = list(csv.DictReader(open(next(tmp_path.glob("*.csv")))))
     assert rows[0]["PlateNumber"] == "STREAM1"
 
 
-def test_stream_parses_multiline_json(tmp_path, monkeypatch):
+def test_iter_lines_parses_multiline_json(tmp_path, monkeypatch):
     monkeypatch.setattr(spz_logger, "OUTPUT_DIR", tmp_path)
     event = _make_event(obj_type="Plate", obj_text="MULTI1")
-    event_str = json.dumps(event, indent=2)
-    first_line, *rest_lines = event_str.splitlines()
+    first_line, *rest_lines = json.dumps(event, indent=2).splitlines()
     lines = [f"Code=TrafficJunction;action=Pulse;data={first_line}"] + rest_lines
-    with patch("spz_logger.requests.get", return_value=_make_mock_response(lines)):
-        spz_logger.stream_and_process()
+    spz_logger._iter_lines(_make_mock_response(lines))
     rows = list(csv.DictReader(open(next(tmp_path.glob("*.csv")))))
     assert rows[0]["PlateNumber"] == "MULTI1"
 
 
-def test_stream_ignores_non_traffic_lines(tmp_path, monkeypatch):
+def test_iter_lines_ignores_non_traffic_lines(tmp_path, monkeypatch):
     monkeypatch.setattr(spz_logger, "OUTPUT_DIR", tmp_path)
     lines = ["SomeOtherEvent;action=Pulse;data={}", "boundary", "--myboundary"]
-    with patch("spz_logger.requests.get", return_value=_make_mock_response(lines)):
-        spz_logger.stream_and_process()
+    spz_logger._iter_lines(_make_mock_response(lines))
     assert list(tmp_path.glob("*.csv")) == []
 
 
-def test_stream_warns_on_missing_data_field(tmp_path, monkeypatch, caplog):
+def test_iter_lines_warns_on_missing_data_field(tmp_path, monkeypatch, caplog):
     monkeypatch.setattr(spz_logger, "OUTPUT_DIR", tmp_path)
     lines = ["Code=TrafficJunction;action=Pulse;info=here"]
-    with patch("spz_logger.requests.get", return_value=_make_mock_response(lines)):
-        with caplog.at_level(logging.WARNING, logger="spz_logger"):
-            spz_logger.stream_and_process()
+    with caplog.at_level(logging.WARNING, logger="spz_logger"):
+        spz_logger._iter_lines(_make_mock_response(lines))
     assert any("No 'data='" in r.message for r in caplog.records)
+
+
+def test_stream_loop_uses_session(tmp_path, monkeypatch):
+    monkeypatch.setattr(spz_logger, "OUTPUT_DIR", tmp_path)
+    event = _make_event(obj_type="Plate", obj_text="SESS1")
+    event_lines = json.dumps(event, indent=2).splitlines()
+    lines = [f"Code=TrafficJunction;action=Pulse;data={event_lines[0]}"] + event_lines[1:]
+    mock_session = MagicMock()
+    mock_session.get.return_value = _make_mock_response(lines)
+    spz_logger.stream_loop(mock_session)
+    mock_session.get.assert_called_once_with(spz_logger.CAMERA_URL, stream=True, timeout=None)
+    rows = list(csv.DictReader(open(next(tmp_path.glob("*.csv")))))
+    assert rows[0]["PlateNumber"] == "SESS1"
 
 
 # ---------------------------------------------------------------------------
@@ -264,14 +271,14 @@ def test_main_reconnects_on_exception(monkeypatch):
 
     call_count = 0
 
-    def fake_stream():
+    def fake_stream_loop(session):
         nonlocal call_count
         call_count += 1
         if call_count == 1:
             raise ConnectionError("timeout")
         raise KeyboardInterrupt
 
-    monkeypatch.setattr(spz_logger, "stream_and_process", fake_stream)
+    monkeypatch.setattr(spz_logger, "stream_loop", fake_stream_loop)
     monkeypatch.setattr(spz_logger.time, "sleep", MagicMock())
 
     with pytest.raises(SystemExit):

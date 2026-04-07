@@ -148,43 +148,41 @@ def parse_event(json_str: str) -> None:
 # Streaming
 # ---------------------------------------------------------------------------
 
-def stream_and_process() -> None:
+def _iter_lines(resp) -> None:
+    """Parse the multipart event stream and call parse_event for each complete JSON object."""
+    collecting = False
+    brace_depth = 0
+    json_lines: list[str] = []
+
+    for raw in resp.iter_lines(chunk_size=1):
+        line: str = raw.decode("utf-8", errors="replace") if isinstance(raw, bytes) else raw
+
+        if collecting:
+            json_lines.append(line)
+            brace_depth += line.count("{") - line.count("}")
+            if brace_depth <= 0:
+                parse_event("\n".join(json_lines))
+                collecting = False
+                json_lines = []
+                brace_depth = 0
+        elif line.startswith("Code=TrafficJunction;action=Pulse"):
+            idx = line.find("data=")
+            if idx == -1:
+                log.warning("No 'data=' in Code line: %s", line[:120])
+                continue
+            first = line[idx + len("data="):]
+            json_lines = [first]
+            brace_depth = first.count("{") - first.count("}")
+            collecting = brace_depth > 0
+
+
+def stream_loop(session: requests.Session) -> None:
+    """Connect once and consume events until the stream drops."""
     log.info("Connecting to %s", CAMERA_URL)
-    with requests.get(
-        CAMERA_URL,
-        auth=HTTPDigestAuth(CAMERA_USER, CAMERA_PASS),
-        stream=True,
-        timeout=None,
-    ) as resp:
+    with session.get(CAMERA_URL, stream=True, timeout=None) as resp:
         resp.raise_for_status()
         log.info("Connected — HTTP %s", resp.status_code)
-
-        # The camera sends pretty-printed (multi-line) JSON after the Code= header.
-        # We track brace depth to know when the JSON object is complete.
-        collecting = False
-        brace_depth = 0
-        json_lines: list[str] = []
-
-        for raw in resp.iter_lines(chunk_size=1):
-            line: str = raw.decode("utf-8", errors="replace") if isinstance(raw, bytes) else raw
-
-            if collecting:
-                json_lines.append(line)
-                brace_depth += line.count("{") - line.count("}")
-                if brace_depth <= 0:
-                    parse_event("\n".join(json_lines))
-                    collecting = False
-                    json_lines = []
-                    brace_depth = 0
-            elif line.startswith("Code=TrafficJunction;action=Pulse"):
-                idx = line.find("data=")
-                if idx == -1:
-                    log.warning("No 'data=' in Code line: %s", line[:120])
-                    continue
-                first = line[idx + len("data="):]
-                json_lines = [first]
-                brace_depth = first.count("{") - first.count("}")
-                collecting = brace_depth > 0  # start collecting if JSON opened
+        _iter_lines(resp)
 
 
 # ---------------------------------------------------------------------------
@@ -212,15 +210,19 @@ def main() -> None:
 
     popup("Plate Logger", "Plate logger started successfully.")
     log.info("spz_logger starting")
+
+    session = requests.Session()
+    session.auth = HTTPDigestAuth(CAMERA_USER, CAMERA_PASS)
+
     while True:
         try:
-            stream_and_process()
+            stream_loop(session)
         except KeyboardInterrupt:
             log.info("Interrupted by user — exiting")
             sys.exit(0)
         except Exception as exc:
-            log.exception("Stream error: %s — reconnecting in 10 s", exc)
-            time.sleep(10)
+            log.exception("Stream error: %s — reconnecting in 3 s", exc)
+            time.sleep(3)
 
 
 if __name__ == "__main__":
