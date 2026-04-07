@@ -95,7 +95,7 @@ def append_row(row: dict) -> None:
     path = csv_path_for(row["DateTime"])
     is_new = not path.exists()
 
-    with open(path, "a", newline="") as fh:
+    with open(path, "a", newline="", encoding="utf-8") as fh:
         writer = csv.DictWriter(fh, fieldnames=["DateTime", "PlateNumber"])
         if is_new:
             writer.writeheader()
