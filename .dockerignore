@@ -1,0 +1,11 @@
+.git
+.github
+*.md
+cameras.yaml
+plates/
+logs/
+exports/
+plate_logger
+*.db
+*.log
+*.csv

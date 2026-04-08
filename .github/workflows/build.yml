@@ -1,9 +1,10 @@
-name: Build and Release
+name: CI and Release
 
 on:
   push:
-    tags:
-      - "v*"
+    branches: ["**"]
+    tags: ["v*"]
+  pull_request:
   workflow_dispatch:
     inputs:
       tag:
@@ -11,37 +12,55 @@ on:
         required: true
 
 jobs:
-  build:
-    runs-on: windows-latest
+  ci:
+    name: CI
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+
+      - name: Format check
+        run: |
+          unformatted=$(gofmt -l ./internal/ ./cmd/)
+          if [ -n "$unformatted" ]; then
+            echo "Files need formatting:"
+            echo "$unformatted"
+            exit 1
+          fi
+
+      - name: Vet
+        run: go vet ./internal/... ./cmd/...
+
+      - name: Test
+        run: go test ./internal/... ./cmd/...
+
+  release:
+    name: Release
+    runs-on: ubuntu-latest
+    needs: ci
+    if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
     permissions:
       contents: write
 
     steps:
       - uses: actions/checkout@v6
-      - name: Set up Python
-        uses: actions/setup-python@v5
+
+      - name: Set up Go
+        uses: actions/setup-go@v6
         with:
-          python-version: "3.13"
+          go-version-file: go.mod
 
-      - name: Install dependencies
-        run: |
-          pip install -r requirements.txt
-          pip install pyinstaller
-
-      - name: Build executable
-        run: >
-          pyinstaller --onefile --name spz_logger
-          --hidden-import win32timezone
-          --hidden-import win32service
-          --hidden-import win32serviceutil
-          --hidden-import win32event
-          --hidden-import servicemanager
-          spz_logger.py
+      - name: Build
+        run: CGO_ENABLED=0 go build -ldflags="-s -w" -o plate_logger .
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ inputs.tag || github.ref_name }}
-          files: |
-            dist/spz_logger.exe
+          files: plate_logger
           generate_release_notes: true
