@@ -14,10 +14,21 @@ import logging.handlers
 import socket
 import sys
 import time
+import threading
 from datetime import datetime, timezone
 from pathlib import Path
 
 import os
+
+try:
+    import win32event
+    import win32service
+    import win32serviceutil
+    import win32timezone  # noqa: F401 — required by pywin32 at runtime; must be explicit for PyInstaller
+    import servicemanager
+    _HAVE_WIN32 = True
+except ImportError:
+    _HAVE_WIN32 = False
 
 import requests
 from requests.auth import HTTPDigestAuth
@@ -225,5 +236,60 @@ def main() -> None:
             time.sleep(3)
 
 
+# ---------------------------------------------------------------------------
+# Windows Service
+# ---------------------------------------------------------------------------
+
+if _HAVE_WIN32:
+    class PlateLoggerService(win32serviceutil.ServiceFramework):
+        _svc_name_         = "DahuaPlateLogger"
+        _svc_display_name_ = "Dahua Plate Logger"
+        _svc_description_  = "Logs license plates from Dahua camera events."
+
+        def __init__(self, args):
+            win32serviceutil.ServiceFramework.__init__(self, args)
+            self._stop_event = win32event.CreateEvent(None, 0, 0, None)
+            self._session: requests.Session | None = None
+
+        def SvcStop(self):
+            self.ReportServiceStatus(win32service.SERVICE_STOP_PENDING)
+            win32event.SetEvent(self._stop_event)
+            if self._session:
+                self._session.close()  # interrupts blocked iter_lines()
+            log.info("Service stop requested")
+
+        def SvcDoRun(self):
+            self.ReportServiceStatus(win32service.SERVICE_RUNNING)
+            servicemanager.LogMsg(
+                servicemanager.EVENTLOG_INFORMATION_TYPE,
+                servicemanager.PYS_SERVICE_STARTED,
+                (self._svc_name_, ""),
+            )
+            log.info("spz_logger service starting")
+            self._session = requests.Session()
+            self._session.auth = HTTPDigestAuth(CAMERA_USER, CAMERA_PASS)
+
+            while win32event.WaitForSingleObject(self._stop_event, 0) != win32event.WAIT_OBJECT_0:
+                try:
+                    stream_loop(self._session)
+                except Exception as exc:
+                    if win32event.WaitForSingleObject(self._stop_event, 0) == win32event.WAIT_OBJECT_0:
+                        break
+                    log.exception("Stream error: %s — reconnecting in 3 s", exc)
+                    if win32event.WaitForSingleObject(self._stop_event, 3000) == win32event.WAIT_OBJECT_0:
+                        break
+
+            log.info("spz_logger service stopped")
+
+
 if __name__ == "__main__":
-    main()
+    if _HAVE_WIN32:
+        if len(sys.argv) == 1:
+            # Started by SCM — launch service dispatcher
+            servicemanager.Initialize()
+            servicemanager.PrepareToHostSingle(PlateLoggerService)
+            servicemanager.StartServiceCtrlDispatcher()
+        else:
+            win32serviceutil.HandleCommandLine(PlateLoggerService)
+    else:
+        main()

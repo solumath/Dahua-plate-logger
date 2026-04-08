@@ -29,7 +29,14 @@ jobs:
           pip install pyinstaller
 
       - name: Build executable
-        run: pyinstaller --onefile --noconsole --name spz_logger spz_logger.py
+        run: >
+          pyinstaller --onefile --name spz_logger
+          --hidden-import win32timezone
+          --hidden-import win32service
+          --hidden-import win32serviceutil
+          --hidden-import win32event
+          --hidden-import servicemanager
+          spz_logger.py
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
