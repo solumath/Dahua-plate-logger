@@ -1,0 +1,15 @@
+db_dir: /data/plates   # in Docker: /data/plates; bare metal: plates/ next to binary
+log_dir: /data/logs    # in Docker: /data/logs;   bare metal: logs/ next to binary
+log_level: info        # optional: info, debug, all — default: info
+port: 8080             # optional, 0 to disable — serves status page at / and JSON at /status
+
+cameras:
+  - name: entrance
+    url: "http://192.168.1.10/cgi-bin/eventManager.cgi?action=attach&codes=[TrafficJunction]"
+    user: admin
+    pass: password
+
+  - name: exit
+    url: "http://192.168.1.11/cgi-bin/eventManager.cgi?action=attach&codes=[TrafficJunction]"
+    user: admin
+    pass: password

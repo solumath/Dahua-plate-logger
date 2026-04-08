@@ -1,0 +1,13 @@
+services:
+  plate_logger:
+    build: .
+    restart: always
+    volumes:
+      - ./cameras.yaml:/config/cameras.yaml:ro
+      - ./plates:/data/plates
+      - ./logs:/data/logs
+      - ./exports:/data/exports
+    environment:
+      TZ: Europe/Prague
+    ports:
+      - "8080:8080"
